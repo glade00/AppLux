@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+	<title>Application Playbulb Candle</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link src="./css/style.css">
+	<link rel="stylesheet" href="https://unpkg.com/onsenui/css/onsenui.css">
+	<link rel="stylesheet" href="https://unpkg.com/onsenui/css/onsen-css-components.min.css">
+
+	<script src="https://unpkg.com/onsenui/js/onsenui.min.js"></script>
+
+	<script src="./js/complements.js"></script>
+	<script type="text/javascript" charset="utf-8" src="cordova.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5"></script>
+
+
+	<script>
+		// variable globales
+		var runOnSmartphone = false;
+		var theID = "";     // pour y stocker l'identifiant de l'ampoule actuellement connectée
+		// chaine de caractere de la forme B8:ED:4B:07:AC:E6;
+
+
+		function init() {
+			// cette fonction est appelée lorsque les interfaces matérielles sont disponibles
+			// ce message pourra être mis en commentaire 
+			alert("Platform interfaces ready");
+
+			// si dessous 3 methodes pour savoir si votre code s'execute
+			// sur smartphone ou dans un navigateur
+			// cela permet de faire des tests pendant la phase de mise au point
+			// vous ne pouvez garder qu'une seule façon de positionner la variable runOnSmartphone
+			// mais gardez une methode qui fonctionne !
+
+			if (window.hasOwnProperty("cordova")) {
+				console.log("You're on a mobile device");
+				runOnSmartphone = true;
+			}
+
+			// Or 
+
+			if (typeof (cordova) == "object") {
+				console.log("You're on a mobile device");
+				runOnSmartphone = true;
+			}
+
+			// Or 
+
+			if (!!window.cordova) {
+				console.log("You're on a mobile device");
+				runOnSmartphone = true;
+			}
+
+			// par exemple
+			if (runOnSmartphone == false)
+				ons.notification.alert("Execution dans navigateur");
+
+
+		}
+
+		ons.ready(init);
+
+		//permet d'afficher la boîte de dialogue
+		var dialog = document.getElementById('scan-dialog');
+
+		if (dialog) {
+			dialog.show();
+		} else {
+			ons.createElement('scandialog.html', { append: true })
+				.then(function (dialog) {
+					dialog.show();
+				});
+		}
+
+		function myScan() {
+			ble.startScan([], function (device) {
+				if (device.name.includes("PLAYBULB")) {
+					var onsItem = document.createElement('ons-list-item');
+					onsItem.innerHTML = '<p>' + device.name + '</p>';
+					onsItem.setAttribute('tappable', '');
+					onsItem.setAttribute('onclick', 'onConnect("' + device.id + '")');
+					document.getElementById('myList').appendChild(onsItem);
+
+				}
+				document.querySelector("ons-bottom-toolbar").innerHTML = '<p> id de l\'ampoule:' + device.id + '</p>'
+
+			}
+				, scanError
+				,
+				// et pour arreter le scan au bout de 5 secondes
+				setTimeout(ble.stopScan,
+					5000,
+					function () { console.log("Scan complete"); },
+					function () { console.log("stopScan failed"); }
+				)
+			)
+		}
+
+		// penser à définir la fonction scanError
+		function scanError() {
+			ons.notification.alert("Aucun équipement bluetooth détécté");
+		}
+
+		function onConnect(id) {
+			// pour se connecter à l’ampoule
+			theID = id;
+			ble.connect(id, onConnectSucces, onConnectError);
+		}
+		function onConnectSucces() {
+			document.querySelector('#scan-dialog').hide();
+			ons.notification.alert("Connexion réussie");
+		}
+		function onConnectError() {
+			ons.notification.alert("Connexion échouée");
+		}
+		function onDisconnect() {
+			// pour se deconnecter
+			ble.disconnect(theID);
+			document.querySelector('#scan-dialog').show();
+		}
+
+		// envoi d’une couleur sous la forme FFFFFF ou #FFFFFFF
+		function SendColorAsString(playbulb_id, htmlcolor) {
+			var configData = new Uint8Array(4);
+			// test, accepte les chaines avec ou sans le #
+			if ((htmlcolor.length === 6) || (htmlcolor.length === 7)) {
+				// supprime #
+				c = (htmlcolor.replace('#', '')).split('');
+				configData[0] = 0x00;
+				configData[1] = parseInt((c[0] + c[1]), 16); // red
+				configData[2] = parseInt((c[2] + c[3]), 16); // green
+				configData[3] = parseInt((c[4] + c[5]), 16); // blue
+				// Attention FF01 pour la playbulb rainbow, FF02 pour la playbulb candle
+				ble.writeWithoutResponse(playbulb_id, "FF02", "FFFC", configData.buffer,
+
+					function () {
+						console.log("Sending command complete");
+						document.getElementById('colorCODE').innerHTML = '<p> La code de la couleur choisie est celle-ci: ' + htmlcolor + '</p>'
+					},
+					function () { console.log("Sending command failed"); }
+				);
+			}
+		}
+
+
+		//pour l'accélarateur
+		document.addEventListener('init', function (event) {
+			var page = event.target;
+			if (page.id === 'page2') {
+				function processEvent(event) {
+					document.getElementById('valaccel').innerHTML = '<p> x:' + Math.round(event.acceleration.x) + ' y:' + Math.round(event.acceleration.y) + ' z:' + Math.round(event.acceleration.z) + '</p>'
+					var norme = Math.sqrt(event.acceleration.x * event.acceleration.x + event.acceleration.y * event.acceleration.y + event.acceleration.z * event.acceleration.z);
+
+					if (norme > 12) {
+						alert('Vous avez bien secoué! La couleur a bien changé! ')
+						document.getElementById('colorrandom').value = "#" + getRandomColor();
+						document.getElementById('colorrandom').style.backgroundColor = document.getElementById('colorrandom').value;
+						SendColorAsString(theID, document.getElementById('colorrandom').value)
+					}
+				}
+				window.addEventListener("devicemotion", processEvent, true);
+			} else {
+				window.removeEventListener("devicemotion", processEvent);
+			}
+		});
+
+		document.querySelector("ons-bottom-toolbar").innerHTML = 'id:' + theID + '</p>';
+
+	</script>
+</head>
+
+<body>
+
+	<!-- Boite de dialogue modale
+Pour scanner les équipements BT. Elle doit s'afficher au lancement de l'appli si pas de connection effective
+(TheID == chaine null)
+Il faut lancer la detection (voir doc du plugin BLE) et creer dynamiquement la liste
+pouvoir choisir un element et se connecter
+si OK, la variable globale theID prend la valeur de device.id -->
+
+	<template id='scandialog.html'>
+		<ons-dialog id="scan-dialog">
+			<div style="text-align: center; padding: 10px;">
+				<p>
+					<ons-button onclick="myConnect()">Connect</ons-button>
+					<ons-button onclick="myScan()">Scan</ons-button>
+				</p>
+
+				<ons-list id="myList">
+					<!--   <ons-list-item id="dummy">No devices... please rescan</ons-list-item> -->
+					<ons-list-item id="dummy" tappable='true'>
+						<p onclick="onConnectSucces()">Connection appareil bluethoot</p>
+					</ons-list-item>
+				</ons-list>
+			</div>
+		</ons-dialog>
+	</template>
+
+
+	<!-- Structure de base de l'application
+4 pages avec navigation par onglet
+Ne pas oublier la toolbar sur les pages (parametres) 
+
+Renommer les pages pour avoir un code compréhensible
+Ajouter icones, definit la position des onglets (top, bottom ou auto), etc... -->
+
+	<ons-tabbar swipeable position="auto">
+		<ons-tab page="page1.html" label="Choisi" active></ons-tab>
+		<ons-tab page="page2.html" label="Secoue"></ons-tab>
+		<ons-tab page="page3.html" label="Photo"></ons-tab>
+		<ons-tab page="user.html" label="La roue"></ons-tab>
+	</ons-tabbar>
+
+	<!-- Renommer les pages pour avoir un code compréhensible -->
+	<template id="page1.html">
+		< <ons-page id="page1">
+
+			<div style="text-align: center; padding: 10px;">
+				<h1>Ici selecteur de couleur</h1>
+			</div>
+			<ons-input type="color" id="color-input">Cliquez pour choisir une couleur</ons-input>
+			<ons-button onclick="SendColorAsString(theID,document.getElementById('color-input').value)">Mettre à jour
+			</ons-button>
+			<br>
+			<div id="colorCODE"></div>
+			<p>
+				<ons-button onclick="onDisconnect()">Déconnexion</ons-button>
+
+
+			</p>
+
+			<ons-bottom-toolbar>
+				Ici accès paramètres et ID de l'ampoule
+			</ons-bottom-toolbar>
+			</ons-page>
+	</template>
+
+	<template id="page2.html">
+		<ons-page id="page2">
+
+			<h1 class="">Secouer pour changer de couleur !</h1>
+
+			<p>Valeurs de l'accelerometre</p>
+			<span id="valaccel"></span>
+			<div id="colorrandom" style="width: 50%; height:50px; margin: 10px;"></div>
+
+			<ons-bottom-toolbar>
+				Ici accès paramètres et ID de l'ampoule
+			</ons-bottom-toolbar>
+		</ons-page>
+	</template>
+
+
+	<!-- Ici le code de base est fourni.
+C'est "brut" et il y beaucoup d'imperfactions et c'est surement améliorable
+nottamement concernant la taille de l'image resultante
+qui devrait être en fonction de la taille de l'espace disponible sur la page
+voir aussi l'option popover -->
+
+	<template id="page3.html">
+		<ons-page id="page3">
+
+			<h1>Ici photo</h1>
+
+			<ons-card>
+				<img id="maphoto" src='./images/empty.png' alt='' class='' />
+			</ons-card>
+
+			<p>
+				<ons-button onclick="takePicture()">"Clic Clac"</ons-button>
+			</p>
+			<p id="couleur_dominante_photo">
+			</p>
+			<p>
+				<ons-button onclick="couleurDominantePhoto()">La couleur dominante</ons-button>
+			</p>
+			<ons-bottom-toolbar>
+				Ici accès paramètres et ID de l'ampoule
+			</ons-bottom-toolbar>
+
+			<script>
+				function onSuccessCamera(imageURI) {
+					var image = document.getElementById('maphoto');
+					image.src = imageURI;
+				}
+
+				function onFailCamera(message) {
+					alert('Camera Failed because: ' + message);
+				}
+
+				function takePicture() {
+					ons.notification.alert('Try to activate the camera');
+					navigator.camera.getPicture(onSuccessCamera, onFailCamera,
+						{
+							quality: 50,
+							// destinationType : Camera.DestinationType.DATA_URL,
+							destinationType: Camera.DestinationType.FILE_URI,
+							sourceType: Camera.PictureSourceType.CAMERA,
+							allowEdit: false,
+							encodingType: Camera.EncodingType.JPEG,
+							targetWidth: 120,
+							targetHeight: 120,
+							popoverOptions: CameraPopoverOptions,
+							saveToPhotoAlbum: false
+						}
+					);
+				}
+				function couleurDominantePhoto() {
+					document.getElementById('couleur_dominante_photo').innerHTML = "<span> La couleur dominante est " + + "</span>"
+					couleurDominanteImage(document.getElementById('maphoto'), 1);
+				}
+				document.querySelector("ons-bottom-toolbar").innerHTML = '<p> id de l\'ampoule:' + theID + '</p>'
+
+			</script>
+
+		</ons-page>
+	</template>
+
+	<!-- Ici c'est votre page.
+A vous de proposer una façon de fournir une couleur... -->
+
+	<template id="user.html">
+		<ons-page id="user">
+
+			<h1 style="text-align:center;">La roue des couleurs</h1>
+			<div id="rouecolor" style=" height: 200px; margin:10px auto;
+			border-radius: 50%;
+			width: 200px;
+			border: 1px solid black;"></div>
+			<div id="couleurfinale"></div>
+			<p style="text-align:center;">
+				<ons-button class="button--cta" onclick="RoueColor()">Lancer la couleur</ons-button>
+			</p>
+			<p style="text-align:center;">
+				<ons-button onclick="stopRoueColor()">Arrêter la couleur</ons-button>
+			</p>
+
+
+			<ons-bottom-toolbar>
+				Ici accès paramètres et ID de l'ampoule
+			</ons-bottom-toolbar>
+			<script>
+				//fonction utilisateur
+
+				function RoueColor() {
+					document.getElementById('rouecolor').value = "#" + getRandomColor();
+					document.getElementById('rouecolor').style.backgroundColor = document.getElementById('rouecolor').value;
+					t = setTimeout("RoueColor()", 50);
+				}
+
+				function stopRoueColor() {
+					clearTimeout(t);
+					document.getElementById('couleurfinale').innerHTML = "<p style='text-align:center;'> La couleur finale est " + document.getElementById('rouecolor').value + "</p>";
+					SendColorAsString(theID, document.getElementById('rouecolor').value);
+				}
+				document.querySelector("ons-bottom-toolbar").innerHTML = '<p> id de l\'ampoule:' + theID + '</p>'
+
+			</script>
+		</ons-page>
+	</template>
+
+</body>
+
+</html>
